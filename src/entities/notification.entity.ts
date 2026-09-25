@@ -34,6 +34,10 @@ export class NotificationRecord {
   @Column({ name: 'message', type: 'text', nullable: true })
   message: string | null;
 
+  /** 当前内容版本号：内容被新版本替代时 +1；投递快照与签收均绑定版本 */
+  @Column({ name: 'content_version', type: 'int', default: 1 })
+  contentVersion: number;
+
   @Column({ name: 'failure_reason', type: 'text', nullable: true })
   failureReason: string | null;
 

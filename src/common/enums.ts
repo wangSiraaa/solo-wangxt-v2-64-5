@@ -26,6 +26,44 @@ export enum NotificationStatus {
   PENDING = 'PENDING',
   DELIVERED = 'DELIVERED',
   FAILED = 'FAILED',
+  /** 家属已签收当前内容版本（回执-签收闭环完成） */
+  SIGNED = 'SIGNED',
+}
+
+/** 单次投递尝试状态机：PENDING → ACCEPTED → DELIVERED / FAILED（终态粘滞，迟到回执仅留痕） */
+export enum DeliveryStatus {
+  /** 已创建，等待投递器回执 */
+  PENDING = 'PENDING',
+  /** 通道已受理 */
+  ACCEPTED = 'ACCEPTED',
+  DELIVERED = 'DELIVERED',
+  FAILED = 'FAILED',
+}
+
+/** 离线模拟多渠道投递器回传的事件类型 */
+export enum ReceiptType {
+  /** 受理 */
+  ACCEPTED = 'ACCEPTED',
+  /** 送达 */
+  DELIVERED = 'DELIVERED',
+  /** 失败 */
+  FAILED = 'FAILED',
+  /** 家属签收 */
+  SIGNED = 'SIGNED',
+}
+
+export enum SignatureStatus {
+  /** 绑定当前内容版本，签收生效 */
+  VALID = 'VALID',
+  /** 内容已被新版本替代，旧版迟到签收仅留痕、不生效 */
+  SUPERSEDED = 'SUPERSEDED',
+}
+
+/** 离线模拟的投递通道（不连接真实短信/外部服务） */
+export enum NotifyChannel {
+  SMS = 'SMS',
+  VOICE = 'VOICE',
+  APP_PUSH = 'APP_PUSH',
 }
 
 export enum NotifiableStatus {

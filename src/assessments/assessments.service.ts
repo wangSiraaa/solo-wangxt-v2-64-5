@@ -12,12 +12,15 @@ import { ScaleItem } from '../entities/scale-item.entity';
 import { ScaleOption } from '../entities/scale-option.entity';
 import { ReviewDecision } from '../entities/review-decision.entity';
 import { NotificationRecord } from '../entities/notification.entity';
+import { NotificationContentVersion } from '../entities/notification-content-version.entity';
 import {
   CaseStatus,
   NotifiableStatus,
   NotificationStatus,
   ReviewResult,
 } from '../common/enums';
+import { buildFamilyNoticeText } from '../common/notice-text.util';
+import { initialContentVersion } from '../common/content-version.util';
 import { ScoringService } from '../scoring/scoring.service';
 import { SubmitAssessmentDto } from './dto/submit-assessment.dto';
 
@@ -157,12 +160,15 @@ export class AssessmentsService {
           notification.assessmentCase = entity;
           notification.status = NotificationStatus.PENDING;
           notification.notifiableStatus = NotifiableStatus.CONFIRMED;
-          notification.message = this.buildNoticeText(
-            dto.elderName,
-            scale.title,
-            r1.grade!,
-            review.comment,
-          );
+          notification.contentVersion = 1;
+          notification.message = buildFamilyNoticeText({
+            elderName: dto.elderName,
+            scaleTitle: scale.title,
+            status: CaseStatus.CONFIRMED,
+            confirmedGrade: r1.grade!,
+            reviewComment: review.comment,
+            reviewerId: 'SYSTEM',
+          });
           notification.failureReason = null;
           notification.attempts = 0;
 
@@ -171,7 +177,11 @@ export class AssessmentsService {
           review.assessmentCase = saved;
           notification.assessmentCase = saved;
           await em.save(review);
-          await em.save(notification);
+          const savedNotification = await em.save(notification);
+          await em.save(
+            NotificationContentVersion,
+            initialContentVersion(savedNotification, '告知创建'),
+          );
           return saved.id;
         }
       }
@@ -199,17 +209,5 @@ export class AssessmentsService {
     });
     if (!c) throw new NotFoundException('评估案件不存在');
     return c;
-  }
-
-  private buildNoticeText(
-    elderName: string,
-    scaleTitle: string,
-    grade: string,
-    basis: string,
-  ): string {
-    return (
-      `家属告知：${elderName} 的${scaleTitle}评估等级已确认为 ${grade}。` +
-      `确认依据：${basis} 本评估为虚构行政流程演示，不构成医疗诊断或护理建议。`
-    );
   }
 }

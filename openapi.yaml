@@ -1,0 +1,833 @@
+# 本文件由 src/openapi/openapi-spec.ts 生成（npx ts-node src/openapi/export-yaml.ts），
+# 与 GET /api/openapi.json 内容一致；请勿手工编辑。
+openapi: 3.0.3
+info:
+  title: 养老机构评估-复核-告知-费用 流程 API（虚构量表演示）
+  version: 1.1.0
+  description: 行政流程演示：量表评估 → 管理复核 → 家属告知（可靠回执与签收闭环）→ 费用生效。使用虚构量表 DEMO_ADL，不构成医疗诊断、护理分级依据或真实护理建议。家属告知由离线模拟的多渠道投递器异步回传受理/送达/失败/签收事件，不连接真实短信或外部服务。
+servers:
+  -
+    url: /api
+tags:
+  -
+    name: scales
+    description: 量表版本
+  -
+    name: assessments
+    description: 评估案件
+  -
+    name: reviews
+    description: 管理复核
+  -
+    name: notifications
+    description: 家属告知（旧同步接口，兼容保留）
+  -
+    name: deliveries
+    description: 投递 / 重试 / 回执归并 / 签收 / 时间线
+  -
+    name: fees
+    description: 费用生效与分段
+  -
+    name: meta
+    description: 接口描述
+paths:
+  /scales/{id}:
+    get:
+      tags:
+        - scales
+      summary: 量表版本、原始条目/选项、NA 分母策略、定级阈值
+      parameters:
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: 量表版本详情
+        404:
+          description: 不存在
+  /assessments:
+    post:
+      tags:
+        - assessments
+      summary: 提交两位评估员作答 → INCOMPLETE / CONFIRMED / PENDING_REVIEW
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/SubmitAssessment"
+      responses:
+        201:
+          description: 案件 + 逐项评分来源
+        400:
+          description: 作答不合法
+  /assessments/{id}:
+    get:
+      tags:
+        - assessments
+      summary: 案件 + 逐项评分来源 + 复核意见 + 告知记录
+      parameters:
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: 案件详情
+        404:
+          description: 不存在
+  /assessments/{caseId}/review/confirm:
+    post:
+      tags:
+        - reviews
+      summary: 管理复核确认（等级限候选内；重复确认请求按幂等键回放）
+      parameters:
+        -
+          name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ConfirmReview"
+      responses:
+        201:
+          description: 确认成功或幂等回放
+        400:
+          description: 等级不在候选内
+        409:
+          description: 重复确认 / 案件不可定级
+  /assessments/{caseId}/notification/attempt:
+    post:
+      tags:
+        - notifications
+      summary: （旧接口，兼容保留）同步告知尝试：送达失败与尚未确认分别记录
+      parameters:
+        -
+          name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NotifyAttempt"
+      responses:
+        201:
+          description: 告知记录（PENDING/DELIVERED/FAILED × CONFIRMED/UNCONFIRMED）
+  /assessments/{caseId}/notification:
+    get:
+      tags:
+        - notifications
+      summary: 该案件全部告知记录（失败历史、未确认尝试均保留；状态含闭环投影）
+      parameters:
+        -
+          name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: 告知记录列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/NotificationRecord"
+  /assessments/{caseId}/notification/deliveries:
+    post:
+      tags:
+        - deliveries
+      summary: 发起投递：为告知记录创建投递尝试（不可变内容快照 + 稳定投递号 + 尝试序号）
+      description: 同一内容版本已有投递时返回 409（失败请用重试接口）；内容被新版本替代后允许为新版本发起首次投递。支持 idempotencyKey 幂等回放。
+      parameters:
+        -
+          name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/CreateDelivery"
+      responses:
+        201:
+          description: 投递已创建
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DeliveryResult"
+        409:
+          description: 无告知记录 / 当前版本已有投递
+    get:
+      tags:
+        - deliveries
+      summary: 该案件全部投递尝试（含每次尝试状态与快照）
+      parameters:
+        -
+          name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: 投递列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/Delivery"
+  /assessments/{caseId}/notification/timeline:
+    get:
+      tags:
+        - deliveries
+      summary: 时间线：告知创建 / 内容版本 / 投递 / 回执（含未生效留痕）/ 签收
+      parameters:
+        -
+          name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: 时间线
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Timeline"
+  /assessments/{caseId}/notification/{notificationId}/refresh:
+    post:
+      tags:
+        - deliveries
+      summary: 内容刷新：按案件当前状态重新生成告知内容，内容变化时版本 +1（旧版本登记留痕）
+      parameters:
+        -
+          name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        -
+          name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RefreshContent"
+      responses:
+        201:
+          description: 刷新结果（refreshed 表示是否产生新版本）
+        404:
+          description: 不存在
+  /notification/deliveries/{deliveryNo}:
+    get:
+      tags:
+        - deliveries
+      summary: 完整证据链：投递快照 + 全部回执 + 签收 + 所属告知记录
+      parameters:
+        -
+          name: deliveryNo
+          in: path
+          required: true
+          schema:
+            type: string
+            example: DN-000001
+      responses:
+        200:
+          description: 证据链
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Evidence"
+        404:
+          description: 不存在
+  /notification/deliveries/{deliveryNo}/retry:
+    post:
+      tags:
+        - deliveries
+      summary: 失败重试：仅最新失败尝试可重试，生成新投递号与新尝试序号
+      parameters:
+        -
+          name: deliveryNo
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/RetryDelivery"
+      responses:
+        201:
+          description: 新尝试已创建
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DeliveryResult"
+        409:
+          description: 非最新尝试 / 最新尝试未失败
+  /notification/deliveries/{deliveryNo}/sign:
+    post:
+      tags:
+        - deliveries
+      summary: 家属签收：只能绑定已送达尝试的明确内容版本；重复签收幂等回放；旧版签收仅留痕
+      parameters:
+        -
+          name: deliveryNo
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/SignDelivery"
+      responses:
+        201:
+          description: 签收结果（VALID / SUPERSEDED / 幂等回放）
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SignResult"
+        409:
+          description: 尚未送达，不能签收
+  /notification/receipts:
+    post:
+      tags:
+        - deliveries
+      summary: 投递器回执归并（离线模拟多渠道投递器异步回传：受理/送达/失败/签收）
+      description: 回执可能重复、乱序或迟到。eventId 幂等；单次尝试终态粘滞；告知级状态只由最新尝试投影。同一批次在单个事务内归并，任一失败整批回滚。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/IngestReceipts"
+      responses:
+        201:
+          description: 归并结果（逐条 applied/replayed/note）
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/IngestResult"
+        404:
+          description: 投递号不存在（整批回滚）
+  /fees/activate:
+    post:
+      tags:
+        - fees
+      summary: 等级生效（机构示例规则，独立于告知是否送达/签收）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ActivateGrade"
+      responses:
+        201:
+          description: 生效成功或幂等回放
+        409:
+          description: 未确认 / 同日重叠
+  /fees/segments:
+    get:
+      tags:
+        - fees
+      summary: 按天分段费用：等级期间 × 日费版本，decimal 合计
+      parameters:
+        -
+          name: elderId
+          in: query
+          required: true
+          schema:
+            type: string
+        -
+          name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        -
+          name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        200:
+          description: 分段费用
+        409:
+          description: 区间不合法
+  /openapi.json:
+    get:
+      tags:
+        - meta
+      summary: 本 OpenAPI 描述（JSON）
+      responses:
+        200:
+          description: OpenAPI 3.0 文档
+components:
+  schemas:
+    SubmitAssessment:
+      type: object
+      required:
+        - elderId
+        - elderName
+        - familyContact
+        - assessors
+      properties:
+        elderId:
+          type: string
+        elderName:
+          type: string
+        familyContact:
+          type: string
+        scaleVersionId:
+          type: string
+          format: uuid
+        assessors:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: object
+            required:
+              - assessorId
+              - answers
+            properties:
+              assessorId:
+                type: integer
+                enum:
+                  - 1
+                  - 2
+              answers:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - itemCode
+                    - optionCode
+                  properties:
+                    itemCode:
+                      type: string
+                    optionCode:
+                      type: string
+    ConfirmReview:
+      type: object
+      required:
+        - confirmedGrade
+        - reviewerId
+        - comment
+      properties:
+        confirmedGrade:
+          "$ref": "#/components/schemas/GradeCode"
+        reviewerId:
+          type: string
+        comment:
+          type: string
+        idempotencyKey:
+          type: string
+    NotifyAttempt:
+      type: object
+      properties:
+        simulateFail:
+          type: boolean
+          description: 演示用：强制本次送达失败
+    CreateDelivery:
+      type: object
+      properties:
+        notificationId:
+          type: string
+          format: uuid
+          description: 缺省取该案件最新告知记录
+        channel:
+          "$ref": "#/components/schemas/NotifyChannel"
+        idempotencyKey:
+          type: string
+    RetryDelivery:
+      type: object
+      properties:
+        channel:
+          "$ref": "#/components/schemas/NotifyChannel"
+        reason:
+          type: string
+        idempotencyKey:
+          type: string
+    SignDelivery:
+      type: object
+      required:
+        - signer
+      properties:
+        signer:
+          type: string
+          description: 签收人
+        signedAt:
+          type: string
+          format: date-time
+        eventId:
+          type: string
+          description: 幂等事件 ID，缺省服务端生成
+    RefreshContent:
+      type: object
+      properties:
+        reason:
+          type: string
+    IngestReceipts:
+      type: object
+      required:
+        - receipts
+      properties:
+        receipts:
+          type: array
+          minItems: 1
+          items:
+            "$ref": "#/components/schemas/ReceiptEvent"
+    ReceiptEvent:
+      type: object
+      required:
+        - eventId
+        - deliveryNo
+        - type
+      properties:
+        eventId:
+          type: string
+          description: 投递器事件 ID（幂等键）
+        deliveryNo:
+          type: string
+          example: DN-000001
+        type:
+          "$ref": "#/components/schemas/ReceiptType"
+        occurredAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        signer:
+          type: string
+    ActivateGrade:
+      type: object
+      required:
+        - caseId
+        - effectiveDate
+      properties:
+        caseId:
+          type: string
+          format: uuid
+        effectiveDate:
+          type: string
+          format: date
+        idempotencyKey:
+          type: string
+    GradeCode:
+      type: string
+      enum:
+        - LIGHT
+        - MODERATE
+        - SEVERE
+    NotifyChannel:
+      type: string
+      enum:
+        - SMS
+        - VOICE
+        - APP_PUSH
+      default: SMS
+    ReceiptType:
+      type: string
+      enum:
+        - ACCEPTED
+        - DELIVERED
+        - FAILED
+        - SIGNED
+    NotificationRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - PENDING
+            - DELIVERED
+            - FAILED
+            - SIGNED
+        notifiableStatus:
+          type: string
+          enum:
+            - CONFIRMED
+            - UNCONFIRMED
+        message:
+          type: string
+        contentVersion:
+          type: integer
+        failureReason:
+          type: string
+          nullable: true
+        attempts:
+          type: integer
+        lastAttemptAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    Delivery:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        notificationId:
+          type: string
+          format: uuid
+        deliveryNo:
+          type: string
+          example: DN-000001
+          description: 稳定投递号
+        attemptNo:
+          type: integer
+          description: 尝试序号（同一告知内递增）
+        channel:
+          "$ref": "#/components/schemas/NotifyChannel"
+        status:
+          type: string
+          enum:
+            - PENDING
+            - ACCEPTED
+            - DELIVERED
+            - FAILED
+        notifiableStatus:
+          type: string
+          enum:
+            - CONFIRMED
+            - UNCONFIRMED
+        contentVersion:
+          type: integer
+        contentSnapshot:
+          type: string
+          description: 不可变内容快照
+        contentHash:
+          type: string
+          description: 快照 sha256
+        failureReason:
+          type: string
+          nullable: true
+        acceptedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+        failedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    DeliveryResult:
+      type: object
+      properties:
+        replayed:
+          type: boolean
+        message:
+          type: string
+        retryOf:
+          type: string
+        delivery:
+          "$ref": "#/components/schemas/Delivery"
+    Receipt:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+        deliveryNo:
+          type: string
+        attemptNo:
+          type: integer
+        type:
+          "$ref": "#/components/schemas/ReceiptType"
+        applied:
+          type: boolean
+          description: 是否被状态机接受并产生效果
+        note:
+          type: string
+        reason:
+          type: string
+          nullable: true
+        occurredAt:
+          type: string
+          format: date-time
+        receivedAt:
+          type: string
+          format: date-time
+    Signature:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+        deliveryNo:
+          type: string
+        attemptNo:
+          type: integer
+        contentVersion:
+          type: integer
+        contentHash:
+          type: string
+        signer:
+          type: string
+        status:
+          type: string
+          enum:
+            - VALID
+            - SUPERSEDED
+        signedAt:
+          type: string
+          format: date-time
+    SignResult:
+      type: object
+      properties:
+        replayed:
+          type: boolean
+        note:
+          type: string
+        notificationStatus:
+          type: string
+          enum:
+            - PENDING
+            - DELIVERED
+            - FAILED
+            - SIGNED
+        signature:
+          "$ref": "#/components/schemas/Signature"
+    IngestResult:
+      type: object
+      properties:
+        ingested:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              eventId:
+                type: string
+              deliveryNo:
+                type: string
+              type:
+                "$ref": "#/components/schemas/ReceiptType"
+              applied:
+                type: boolean
+              replayed:
+                type: boolean
+              note:
+                type: string
+              notificationStatus:
+                type: string
+                enum:
+                  - PENDING
+                  - DELIVERED
+                  - FAILED
+                  - SIGNED
+              signatureId:
+                type: string
+                nullable: true
+    Evidence:
+      type: object
+      properties:
+        delivery:
+          "$ref": "#/components/schemas/Delivery"
+        receipts:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Receipt"
+        signature:
+          "$ref": "#/components/schemas/Signature"
+        notification:
+          "$ref": "#/components/schemas/NotificationRecord"
+    Timeline:
+      type: object
+      properties:
+        caseId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              seq:
+                type: integer
+              at:
+                type: string
+                format: date-time
+              type:
+                type: string
+                enum:
+                  - NOTIFICATION_CREATED
+                  - CONTENT_VERSION
+                  - DELIVERY_CREATED
+                  - RECEIPT_ACCEPTED
+                  - RECEIPT_DELIVERED
+                  - RECEIPT_FAILED
+                  - RECEIPT_SIGNED
+                  - SIGNATURE
+              summary:
+                type: string
+              notificationId:
+                type: string
+              deliveryNo:
+                type: string
+              attemptNo:
+                type: integer
+              contentVersion:
+                type: integer
+              applied:
+                type: boolean
+              detail:
+                type: object

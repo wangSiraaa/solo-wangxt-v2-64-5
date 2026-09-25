@@ -9,12 +9,15 @@ import { DataSource, IsNull, Repository } from 'typeorm';
 import { AssessmentCase } from '../entities/assessment-case.entity';
 import { ReviewDecision } from '../entities/review-decision.entity';
 import { NotificationRecord } from '../entities/notification.entity';
+import { NotificationContentVersion } from '../entities/notification-content-version.entity';
 import {
   CaseStatus,
   NotifiableStatus,
   NotificationStatus,
   ReviewResult,
 } from '../common/enums';
+import { buildFamilyNoticeText } from '../common/notice-text.util';
+import { initialContentVersion } from '../common/content-version.util';
 import { ConfirmReviewDto } from './dto/confirm-review.dto';
 
 @Injectable()
@@ -98,14 +101,22 @@ export class ReviewsService {
         notification.assessmentCase = assessmentCase;
         notification.status = NotificationStatus.PENDING;
         notification.notifiableStatus = NotifiableStatus.CONFIRMED;
-        notification.message =
-          `家属告知：${assessmentCase.elderName} 的` +
-          `${assessmentCase.scaleVersion.title}评估等级经管理复核确认为 ` +
-          `${dto.confirmedGrade}。复核意见：${dto.comment} ` +
-          `本评估为虚构行政流程演示，不构成医疗诊断或护理建议。`;
+        notification.contentVersion = 1;
+        notification.message = buildFamilyNoticeText({
+          elderName: assessmentCase.elderName,
+          scaleTitle: assessmentCase.scaleVersion.title,
+          status: CaseStatus.CONFIRMED,
+          confirmedGrade: dto.confirmedGrade,
+          reviewComment: dto.comment,
+          reviewerId: dto.reviewerId,
+        });
         notification.attempts = 0;
         notification.failureReason = null;
-        await em.save(notification);
+        const savedNotification = await em.save(notification);
+        await em.save(
+          NotificationContentVersion,
+          initialContentVersion(savedNotification, '告知创建'),
+        );
 
         return {
           replayed: false,

@@ -11,6 +11,7 @@
     "start:prod": "node dist/main",
     "start:dev": "nest start --watch",
     "seed": "ts-node src/seed-cli.ts",
+    "openapi:yaml": "ts-node src/openapi/export-yaml.ts",
     "test": "jest --config jest-e2e.json --runInBand"
   },
   "dependencies": {
