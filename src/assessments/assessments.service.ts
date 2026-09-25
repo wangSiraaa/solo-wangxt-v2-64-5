@@ -11,15 +11,11 @@ import { ScaleVersion } from '../entities/scale-version.entity';
 import { ScaleItem } from '../entities/scale-item.entity';
 import { ScaleOption } from '../entities/scale-option.entity';
 import { ReviewDecision } from '../entities/review-decision.entity';
-import { NotificationRecord } from '../entities/notification.entity';
-import {
-  CaseStatus,
-  NotifiableStatus,
-  NotificationStatus,
-  ReviewResult,
-} from '../common/enums';
+import { CaseStatus, ReviewResult } from '../common/enums';
 import { ScoringService } from '../scoring/scoring.service';
 import { SubmitAssessmentDto } from './dto/submit-assessment.dto';
+import { createAnchorNotice } from '../notifications/notice-factory';
+import { agreementNoticeText } from '../notifications/notice-content.util';
 
 @Injectable()
 export class AssessmentsService {
@@ -153,25 +149,24 @@ export class AssessmentsService {
             `评估员2 得分 ${r2.rawScore}/${r2.maxScore}（${r2.scorePct}%）。`;
           review.idempotencyKey = null;
 
-          const notification = new NotificationRecord();
-          notification.assessmentCase = entity;
-          notification.status = NotificationStatus.PENDING;
-          notification.notifiableStatus = NotifiableStatus.CONFIRMED;
-          notification.message = this.buildNoticeText(
-            dto.elderName,
-            scale.title,
-            r1.grade!,
-            review.comment,
-          );
-          notification.failureReason = null;
-          notification.attempts = 0;
-
           entity.answers = answerRows;
           const saved = await em.save(entity);
+          saved.scaleVersion = scale;
           review.assessmentCase = saved;
-          notification.assessmentCase = saved;
           await em.save(review);
-          await em.save(notification);
+
+          await createAnchorNotice({
+            em,
+            assessmentCase: saved,
+            message: this.buildNoticeText(
+              dto.elderName,
+              scale.title,
+              r1.grade!,
+              review.comment,
+            ),
+            source: 'AGREEMENT',
+          });
+
           return saved.id;
         }
       }
@@ -207,9 +202,6 @@ export class AssessmentsService {
     grade: string,
     basis: string,
   ): string {
-    return (
-      `家属告知：${elderName} 的${scaleTitle}评估等级已确认为 ${grade}。` +
-      `确认依据：${basis} 本评估为虚构行政流程演示，不构成医疗诊断或护理建议。`
-    );
+    return agreementNoticeText(elderName, scaleTitle, grade, basis);
   }
 }

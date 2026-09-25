@@ -19,5 +19,8 @@
     "noFallthroughCasesInSwitch": false,
     "esModuleInterop": true,
     "resolveJsonModule": true
+  },
+  "ts-node": {
+    "files": true
   }
 }

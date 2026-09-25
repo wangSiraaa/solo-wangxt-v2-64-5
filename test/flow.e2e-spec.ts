@@ -80,7 +80,8 @@ describe('养老评估-复核-告知-费用 全流程 (e2e)', () => {
     // 清空业务表（保留量表与日费规则种子）
     const ds = app.get(DataSource);
     await ds.query(`
-      TRUNCATE grade_periods, notification_records, review_decisions,
+      TRUNCATE grade_periods, notification_signoffs, notification_receipts,
+               notification_deliveries, notification_records, review_decisions,
                assessor_answers, assessment_cases RESTART IDENTITY CASCADE
     `);
   }, 120_000);
